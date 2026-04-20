@@ -327,21 +327,33 @@
                                     label = `Scanning... [${score}]`;
                                 }
 
-                                // Rendering with Mirror Fix
+                                // Conditional Text Rendering based on Camera Mode
                                 context.strokeStyle = color;
                                 context.lineWidth = 3;
                                 context.strokeRect(box.x, box.y, box.width, box.height);
                                 
                                 context.save();
-                                context.scale(-1, 1);
-                                context.fillStyle = color;
-                                context.font = "bold 16px Outfit";
-                                const textRectX = -(box.x + box.width);
-                                context.globalAlpha = 0.8;
-                                context.fillRect(textRectX, box.y - 30, box.width, 30);
-                                context.globalAlpha = 1.0;
-                                context.fillStyle = "white";
-                                context.fillText(label, textRectX + 5, box.y - 10);
+                                if (currentFacingMode === 'user') {
+                                    // Compensate for CSS mirror
+                                    context.scale(-1, 1);
+                                    const textRectX = -(box.x + box.width);
+                                    context.fillStyle = color;
+                                    context.font = "bold 16px Outfit";
+                                    context.globalAlpha = 0.8;
+                                    context.fillRect(textRectX, box.y - 30, box.width, 30);
+                                    context.globalAlpha = 1.0;
+                                    context.fillStyle = "white";
+                                    context.fillText(label, textRectX + 5, box.y - 10);
+                                } else {
+                                    // Normal rendering for back camera
+                                    context.fillStyle = color;
+                                    context.font = "bold 16px Outfit";
+                                    context.globalAlpha = 0.8;
+                                    context.fillRect(box.x, box.y - 30, box.width, 30);
+                                    context.globalAlpha = 1.0;
+                                    context.fillStyle = "white";
+                                    context.fillText(label, box.x + 5, box.y - 10);
+                                }
                                 context.restore();
                             });
                         } catch (err) { console.error(err); }
