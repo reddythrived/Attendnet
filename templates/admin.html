@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard | AttendNet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-dim: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: white;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+
+        h1 { font-size: 2rem; font-weight: 700; }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 24px;
+        }
+
+        .stat-label { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 8px; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; }
+
+        .table-container {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 16px 24px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        td {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--glass-border);
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .status-pill {
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: #10b981;
+            color: #064e3b;
+        }
+
+        .actions { display: flex; gap: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Admin Dashboard</h1>
+            <div class="actions">
+                <a href="/api/admin/export" class="btn btn-outline">📂 Export to Excel</a>
+                <a href="/recognition" class="btn">📹 Start AI Recognition</a>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Registered Students</div>
+                <div class="stat-value" id="studentCount">Loading...</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Check-ins Today</div>
+                <div class="stat-value" id="todayCheckins">Loading...</div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>USN</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceTable">
+                    <!-- Data will be loaded via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function loadDashboardData() {
+            try {
+                const res = await fetch('/api/students/descriptors');
+                const data = await res.json();
+                
+                if (data.error || data.message) {
+                    const errorMsg = data.message || data.error;
+                    if (errorMsg.includes('PGRST205') || errorMsg.includes('not find the table')) {
+                        document.getElementById('studentCount').innerHTML = '<span style="color: #ef4444; font-size: 0.8rem;">Setup Required: Table "students" missing in Supabase. Run schema.sql!</span>';
+                    } else {
+                        document.getElementById('studentCount').innerText = "Database Error";
+                    }
+                    return;
+                }
+
+                document.getElementById('studentCount').innerText = data.length || 0;
+                
+                // Populate table
+                const table = document.getElementById('attendanceTable');
+                if (data.length === 0) {
+                    table.innerHTML = '<tr><td colspan="4" style="text-align:center; color: #94a3b8; padding: 40px;">No students registered yet. Click "Start AI Recognition" to register or use the registration form.</td></tr>';
+                } else {
+                    table.innerHTML = data.map(s => `
+                        <tr>
+                            <td>${s.name}</td>
+                            <td>${s.usn}</td>
+                            <td><span class="status-pill">Active</span></td>
+                            <td>Secure Cloud Log</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                document.getElementById('todayCheckins').innerText = "Syncing...";
+            } catch (err) {
+                console.error("Dashboard Load Error:", err);
+                document.getElementById('studentCount').innerText = "Connection Error";
+            }
+        }
+        
+        loadDashboardData();
+    </script>
+</body>
+</html>

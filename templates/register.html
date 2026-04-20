@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttendNet | Secure Face Registration</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --accent: #f43f5e;
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            --glass: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            background: var(--bg-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            color: var(--text-main);
+            perspective: 1000px;
+        }
+
+        .background-blobs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.15;
+            animation: move 20s infinite alternate;
+        }
+
+        .blob-1 { width: 400px; height: 400px; background: var(--primary); top: -100px; left: -100px; }
+        .blob-2 { width: 300px; height: 300px; background: var(--accent); bottom: -50px; right: -50px; animation-delay: -5s; }
+
+        @keyframes move {
+            from { transform: translate(0, 0) scale(1); }
+            to { transform: translate(100px, 100px) scale(1.2); }
+        }
+
+        .container {
+            width: 100%;
+            max-width: 520px;
+            padding: 20px;
+            animation: fadeIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 32px;
+            padding: 48px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo-box {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, var(--primary), #818cf8);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 36px;
+            box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
+            animation: spin 6s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotateY(0deg); }
+            to { transform: rotateY(360deg); }
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to right, #fff, #94a3b8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            margin-left: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 16px 20px;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .input:focus {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* ── Mode Toggle Tabs ── */
+        .mode-tabs {
+            display: flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            padding: 4px;
+            margin-bottom: 16px;
+        }
+
+        .mode-tab {
+            flex: 1;
+            padding: 12px 8px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .mode-tab.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        .mode-tab:not(.active):hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+        }
+
+        /* ── Upload Area ── */
+        .file-upload {
+            position: relative;
+            border: 2px dashed var(--glass-border);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.02);
+            overflow: hidden;
+        }
+
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-icon { font-size: 32px; margin-bottom: 12px; display: block; }
+        .upload-text { font-size: 0.9rem; color: var(--text-dim); }
+        #photos { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+        /* ── Camera Area ── */
+        .camera-area {
+            display: none;
+            border: 2px solid var(--glass-border);
+            border-radius: 20px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .camera-area.active {
+            display: block;
+        }
+
+        #cameraFeed {
+            width: 100%;
+            display: block;
+            border-radius: 18px;
+            transform: scaleX(-1);
+        }
+
+        .camera-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .capture-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: 4px solid white;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .capture-btn::after {
+            content: '';
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            right: 4px;
+            bottom: 4px;
+            border-radius: 50%;
+            background: white;
+            transition: all 0.15s ease;
+        }
+
+        .capture-btn:hover::after {
+            background: var(--accent);
+        }
+
+        .capture-btn:active {
+            transform: scale(0.9);
+        }
+
+        .capture-btn:active::after {
+            background: var(--accent);
+            transform: scale(0.85);
+        }
+
+        .photo-counter {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .photo-counter .count {
+            font-size: 1.4rem;
+            color: var(--text-main);
+            display: block;
+        }
+
+        .clear-btn {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(244, 63, 94, 0.4);
+            background: rgba(244, 63, 94, 0.1);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .clear-btn:hover {
+            background: rgba(244, 63, 94, 0.2);
+            border-color: var(--accent);
+        }
+
+        /* Hidden canvas for capturing */
+        #captureCanvas { display: none; }
+
+        .preview-grid {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .preview-item {
+            aspect-ratio: 1;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            background: rgba(0, 0, 0, 0.2);
+            position: relative;
+            animation: popIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .preview-item img { width: 100%; height: 100%; object-fit: cover; }
+
+        .preview-item .remove-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: rgba(244, 63, 94, 0.85);
+            border: none;
+            color: white;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .preview-item:hover .remove-btn {
+            opacity: 1;
+        }
+
+        .ai-status {
+            font-size: 0.75rem;
+            color: #10b981;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .submit-btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            border-radius: 16px;
+            padding: 18px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+            box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.5);
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 35px -10px rgba(99, 102, 241, 0.6);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #475569;
+            box-shadow: none;
+        }
+
+        .flash-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9999;
+            transition: opacity 0.1s ease;
+        }
+
+        .flash-overlay.flash {
+            opacity: 0.6;
+        }
+
+        .footer { margin-top: 32px; text-align: center; font-size: 0.8rem; color: var(--text-dim); }
+        .footer span { color: var(--primary); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+    <div class="flash-overlay" id="flashOverlay"></div>
+
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <div class="logo-box">🧿</div>
+                <h1>Registration</h1>
+                <p class="subtitle">Complete your face profile for AI attendance.</p>
+            </div>
+
+            <form action="/register" method="POST" enctype="multipart/form-data" id="registerForm">
+                <input type="hidden" id="face_descriptor" name="face_descriptor">
+                <input type="hidden" id="camera_photos_data" name="camera_photos">
+                
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" name="name" class="input" placeholder="e.g. John Doe" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="reg_no">USN / Register Number</label>
+                    <input type="text" id="reg_no" name="reg_no" class="input" placeholder="e.g. 23BTRCL000" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">College Email</label>
+                    <input type="email" id="email" name="email" class="input" placeholder="name@college.edu" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Phone Number</label>
+                    <input type="tel" id="phone" name="phone" class="input" placeholder="+91 98765 43210" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Create Password</label>
+                    <input type="password" id="password" name="password" class="input" placeholder="Min 6 characters" required minlength="6">
+                </div>
+
+                <div class="form-group">
+                    <label>Face Data (6 Photos Required)</label>
+
+                    <!-- Mode Toggle -->
+                    <div class="mode-tabs">
+                        <button type="button" class="mode-tab active" id="tabUpload" onclick="switchMode('upload')">
+                            📁 Upload Photos
+                        </button>
+                        <button type="button" class="mode-tab" id="tabCamera" onclick="switchMode('camera')">
+                            🎥 Live Camera
+                        </button>
+                    </div>
+
+                    <!-- Upload Mode -->
+                    <div id="uploadArea">
+                        <div class="file-upload">
+                            <span class="upload-icon">📸</span>
+                            <p class="upload-text"><b>Tap to select</b> 6 photos from your device</p>
+                            <input type="file" id="photos" name="photos" accept="image/*" multiple>
+                        </div>
+                    </div>
+
+                    <!-- Camera Mode -->
+                    <div class="camera-area" id="cameraArea">
+                        <video id="cameraFeed" autoplay playsinline muted></video>
+                        <div class="camera-controls">
+                            <div class="photo-counter">
+                                <span class="count" id="photoCount">0</span>/6
+                            </div>
+                            <button type="button" class="capture-btn" id="captureBtn" onclick="capturePhoto()"></button>
+                            <button type="button" class="clear-btn" onclick="clearCaptures()">✕ Clear</button>
+                        </div>
+                    </div>
+                    <canvas id="captureCanvas"></canvas>
+
+                    <div class="ai-status" id="aiStatus">
+                        <span>✨ AI is analyzing face features...</span>
+                    </div>
+                    <div class="preview-grid" id="previewGrid"></div>
+                </div>
+
+                <button type="submit" class="submit-btn" id="submitBtn">
+                    Verify &amp; Register
+                </button>
+                <div style="text-align:center; margin-top: 15px;">
+                    <a href="/" style="color:var(--text-dim); text-decoration:none; font-size:0.85rem; opacity:0.7;">← Back to Role Selection</a>
+                </div>
+            </form>
+
+            <div class="footer">Secured by <span>AttendNet AI</span></div>
+        </div>
+    </div>
+
+    <script>
+        const photosInput = document.getElementById('photos');
+        const previewGrid = document.getElementById('previewGrid');
+        const aiStatus = document.getElementById('aiStatus');
+        const submitBtn = document.getElementById('submitBtn');
+        const descriptorInput = document.getElementById('face_descriptor');
+        const cameraPhotosInput = document.getElementById('camera_photos_data');
+        const flashOverlay = document.getElementById('flashOverlay');
+
+        let currentMode = 'upload';
+        let cameraStream = null;
+        let capturedPhotos = [];
+
+        // ── FAST face detection options ──
+        const FAST_DETECT_OPTIONS = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 });
+
+        // ── Load face-api models from CDN (much faster, globally cached) ──
+        async function loadModels() {
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Loading AI...";
+            const modelPath = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+            await Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
+                faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
+                faceapi.nets.faceRecognitionNet.loadFromUri(modelPath)
+            ]);
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Verify & Register";
+        }
+
+        // ── Fast helper: load image from src ──
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        // ── Fast helper: extract descriptor from one image ──
+        async function extractDescriptor(imgElement) {
+            const detection = await faceapi.detectSingleFace(imgElement, FAST_DETECT_OPTIONS)
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            return detection ? detection.descriptor : null;
+        }
+
+        // ── Analyze multiple photos & average descriptors (fast + accurate) ──
+        async function analyzePhotos(imageSources, progressCallback) {
+            const descriptors = [];
+            // Process 2 at a time for speed without overloading
+            for (let i = 0; i < imageSources.length; i += 2) {
+                const batch = imageSources.slice(i, i + 2);
+                const results = await Promise.all(batch.map(async (src) => {
+                    const img = typeof src === 'string' ? await loadImage(src) : src;
+                    return extractDescriptor(img);
+                }));
+                results.forEach(d => { if (d) descriptors.push(d); });
+                if (progressCallback) progressCallback(Math.min(i + 2, imageSources.length), imageSources.length);
+            }
+
+            if (descriptors.length === 0) return null;
+
+            // Average all descriptors for much better accuracy
+            const avg = new Float32Array(128);
+            descriptors.forEach(d => { for (let j = 0; j < 128; j++) avg[j] += d[j]; });
+            for (let j = 0; j < 128; j++) avg[j] /= descriptors.length;
+            return { descriptor: Array.from(avg), count: descriptors.length };
+        }
+
+        // ── Mode Switching ──
+        function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('tabUpload').classList.toggle('active', mode === 'upload');
+            document.getElementById('tabCamera').classList.toggle('active', mode === 'camera');
+            document.getElementById('uploadArea').style.display = mode === 'upload' ? 'block' : 'none';
+            document.getElementById('cameraArea').classList.toggle('active', mode === 'camera');
+
+            if (mode === 'camera') {
+                startCamera();
+                photosInput.removeAttribute('required');
+            } else {
+                stopCamera();
+                if (capturedPhotos.length === 0) {
+                    photosInput.setAttribute('required', '');
+                }
+            }
+        }
+
+        // ── Camera Controls ──
+        async function startCamera() {
+            if (cameraStream) return;
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+                });
+                document.getElementById('cameraFeed').srcObject = cameraStream;
+            } catch (err) {
+                aiStatus.style.opacity = '1';
+                aiStatus.innerHTML = `<span style='color:#f43f5e;'>❌ Camera access denied. Please allow camera permission.</span>`;
+            }
+        }
+
+        function stopCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+                document.getElementById('cameraFeed').srcObject = null;
+            }
+        }
+
+        async function capturePhoto() {
+            if (capturedPhotos.length >= 6) {
+                aiStatus.style.opacity = '1';
+                aiStatus.innerHTML = `<span style='color:#f43f5e;'>⚠️ Already captured 6 photos. Clear to retake.</span>`;
+                return;
+            }
+
+            const video = document.getElementById('cameraFeed');
+            const canvas = document.getElementById('captureCanvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, 0, 0);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+            flashOverlay.classList.add('flash');
+            setTimeout(() => flashOverlay.classList.remove('flash'), 150);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            capturedPhotos.push(dataUrl);
+            updateCameraPreview();
+
+            if (capturedPhotos.length === 6) {
+                await analyzeCameraPhotos();
+            }
+        }
+
+        function updateCameraPreview() {
+            document.getElementById('photoCount').textContent = capturedPhotos.length;
+            previewGrid.innerHTML = '';
+            capturedPhotos.forEach((dataUrl, idx) => {
+                const item = document.createElement('div');
+                item.className = 'preview-item';
+                item.innerHTML = `
+                    <img src="${dataUrl}">
+                    <button type="button" class="remove-btn" onclick="removeCapture(${idx})">✕</button>
+                `;
+                previewGrid.appendChild(item);
+            });
+        }
+
+        function removeCapture(idx) {
+            capturedPhotos.splice(idx, 1);
+            updateCameraPreview();
+            descriptorInput.value = '';
+            cameraPhotosInput.value = '';
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Verify & Register";
+            aiStatus.style.opacity = '1';
+            aiStatus.innerHTML = `<span style='color:var(--text-dim);'>📷 Capture ${6 - capturedPhotos.length} more photo(s)</span>`;
+        }
+
+        function clearCaptures() {
+            capturedPhotos = [];
+            updateCameraPreview();
+            descriptorInput.value = '';
+            cameraPhotosInput.value = '';
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Verify & Register";
+            aiStatus.style.opacity = '0';
+        }
+
+        async function analyzeCameraPhotos() {
+            aiStatus.style.opacity = '1';
+            submitBtn.disabled = true;
+
+            const result = await analyzePhotos(capturedPhotos, (done, total) => {
+                const pct = Math.round((done / total) * 100);
+                aiStatus.innerHTML = `<span>⚡ Analyzing face ${done}/${total}... (${pct}%)</span>`;
+                submitBtn.innerText = `Analyzing... ${pct}%`;
+            });
+
+            if (result) {
+                descriptorInput.value = JSON.stringify(result.descriptor);
+                cameraPhotosInput.value = JSON.stringify(capturedPhotos);
+                photosInput.removeAttribute('required');
+                aiStatus.innerHTML = `<span>✅ Done! ${result.count}/6 faces detected. AI descriptor ready!</span>`;
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Complete Registration";
+            } else {
+                aiStatus.innerHTML = "<span style='color:#f43f5e;'>❌ No face detected. Retake with better lighting.</span>";
+                submitBtn.disabled = true;
+                submitBtn.innerText = "Face Required";
+            }
+        }
+
+        // ── File Upload Handler (optimized) ──
+        photosInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            previewGrid.innerHTML = '';
+            capturedPhotos = [];
+            cameraPhotosInput.value = '';
+            aiStatus.style.opacity = '1';
+            submitBtn.disabled = true;
+
+            if (files.length !== 6) {
+                aiStatus.innerHTML = `<span style='color:#f43f5e;'>⚠️ Please select EXACTLY 6 photos (Current: ${files.length})</span>`;
+                submitBtn.innerText = "6 Photos Required";
+                return;
+            }
+
+            // Show previews immediately
+            const imgElements = await Promise.all(files.map(f => faceapi.bufferToImage(f)));
+            imgElements.forEach(previewImg => {
+                const item = document.createElement('div');
+                item.className = 'preview-item';
+                item.innerHTML = `<img src="${previewImg.src}">`;
+                previewGrid.appendChild(item);
+            });
+
+            // Analyze all 6 photos with progress
+            const result = await analyzePhotos(imgElements, (done, total) => {
+                const pct = Math.round((done / total) * 100);
+                aiStatus.innerHTML = `<span>⚡ Analyzing face ${done}/${total}... (${pct}%)</span>`;
+                submitBtn.innerText = `Analyzing... ${pct}%`;
+            });
+
+            if (result) {
+                descriptorInput.value = JSON.stringify(result.descriptor);
+                aiStatus.innerHTML = `<span>✅ ${result.count}/6 faces detected. AI descriptor ready!</span>`;
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Complete Registration";
+            } else {
+                aiStatus.innerHTML = "<span style='color:#f43f5e;'>❌ No face detected. Try clearer shots with better lighting.</span>";
+                submitBtn.disabled = true;
+                submitBtn.innerText = "Face Required";
+            }
+        });
+
+        // ── Form Submit: stop camera before navigating ──
+        document.getElementById('registerForm').addEventListener('submit', () => {
+            stopCamera();
+        });
+
+        loadModels();
+    </script>
+</body>
+</html>

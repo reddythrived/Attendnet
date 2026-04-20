@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Smart Face Attendance</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at top left, #0f172a, #020617);
+            color: #e5e7eb;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 520px;
+            background: linear-gradient(145deg, #020617, #020617);
+            border-radius: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.9);
+            padding: 26px 26px 22px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            inset: -40%;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.2), transparent 40%),
+                radial-gradient(circle at 100% 0%, rgba(94, 234, 212, 0.2), transparent 45%);
+            opacity: 0.9;
+            pointer-events: none;
+        }
+
+        .inner {
+            position: relative;
+            z-index: 1;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(22, 163, 74, 0.08);
+            color: #bbf7d0;
+            margin-bottom: 8px;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .pill-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #22c55e;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.9);
+        }
+
+        h1 {
+            font-size: 1.7rem;
+            margin-bottom: 6px;
+            color: #e5e7eb;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #9ca3af;
+            margin-bottom: 18px;
+        }
+
+        .info-row {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .info-card {
+            flex: 1;
+            min-width: 150px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.5);
+        }
+
+        .info-title {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 0.95rem;
+            color: #e5e7eb;
+        }
+
+        .info-value strong {
+            color: #a5b4fc;
+        }
+
+        .cta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-top: 6px;
+        }
+
+        .primary-btn {
+            flex: 1;
+            border: none;
+            border-radius: 999px;
+            padding: 11px 18px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #4f46e5, #6366f1);
+            color: #eef2ff;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.8);
+            transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.12s ease;
+        }
+
+        .primary-btn:hover {
+            filter: brightness(1.07);
+            transform: translateY(-1px);
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.95);
+        }
+
+        .primary-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 12px 32px rgba(15, 23, 42, 0.85);
+        }
+
+        .primary-btn span.icon {
+            font-size: 1.1rem;
+        }
+
+        .note {
+            font-size: 0.72rem;
+            color: #9ca3af;
+            max-width: 220px;
+        }
+
+        .note strong {
+            color: #e5e7eb;
+        }
+
+        .footer {
+            margin-top: 18px;
+            font-size: 0.72rem;
+            color: #9ca3af;
+        }
+
+        .footer strong {
+            color: #e5e7eb;
+        }
+
+        code {
+            font-size: 0.72rem;
+            background: rgba(15, 23, 42, 0.9);
+            padding: 2px 6px;
+            border-radius: 6px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="inner">
+            <div class="pill">
+                <span class="pill-dot"></span>
+                <span>Live camera-based attendance</span>
+            </div>
+
+            <h1>Start Face Attendance</h1>
+            <p class="subtitle">
+                Keep your face in front of the camera for at least <strong>20 seconds</strong>.
+                If your attendance is already marked for today, the system will show
+                <strong>"Reg_No already marked"</strong> in the console.
+            </p>
+
+            <div class="info-row">
+                <div class="info-card">
+                    <div class="info-title">Step 1</div>
+                    <div class="info-value">
+                        Run <strong>smart_face_attendance.py</strong><br />
+                        <code>python smart_face_attendance.py</code>
+                    </div>
+                </div>
+                <div class="info-card">
+                    <div class="info-title">Step 2</div>
+                    <div class="info-value">
+                        Stand alone in front of the camera.<br />
+                        Wait until your USN stays green.
+                    </div>
+                </div>
+            </div>
+
+            <div class="cta">
+                <button type="button" class="primary-btn">
+                    <span class="icon">📷</span>
+                    <span>Open Camera &amp; Mark Attendance</span>
+                </button>
+                <p class="note">
+                    <strong>Note:</strong> This button is only a visual hint.
+                    You actually start the camera from your Python script.
+                </p>
+            </div>
+
+            <p class="footer">
+                <strong>Excel sheet:</strong> Attendance is saved with today’s date as a new column.
+                All other students remain <strong>Absent</strong> unless the camera sees and confirms them.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
