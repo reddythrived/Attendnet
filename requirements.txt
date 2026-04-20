@@ -1,0 +1,12 @@
+flask
+opencv-python-headless
+numpy
+pandas
+openpyxl
+matplotlib
+scikit-learn
+protobuf>=5.26.0
+supabase
+python-dotenv
+gunicorn
+werkzeug

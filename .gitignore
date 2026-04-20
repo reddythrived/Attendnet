@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# App outputs / generated artifacts
+attendance/*.xlsx
+attendance/*.xls
+embeddings_cache.pkl
+evaluation_results/
+*.log
+
+# Dataset (contains personal face images) - keep out of git
+dataset/**
+
+# Allow a tracked README in dataset folder if you add it later
+!dataset/README.md
+!dataset/.gitkeep
+
+attendnet_metric_results/
+static/models/
+evaluation_results/
+*.jpg
+*.png
+*.pkl

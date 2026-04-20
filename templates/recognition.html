@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttendNet | AI Face Recognition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --success: #10b981;
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;
+            justify-content: center;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: black;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px;
+            pointer-events: none;
+        }
+
+        .status-badge {
+            align-self: center;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .status-dot.active {
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .recognition-box {
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 20px;
+            text-align: center;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        h2 { font-size: 1.25rem; margin-bottom: 4px; }
+        p { font-size: 0.9rem; color: #94a3b8; }
+
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--primary);
+            top: 0;
+            animation: scan 3s linear infinite;
+            opacity: 0.5;
+        }
+
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--glass-border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .report-panel {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            width: 280px;
+            max-height: 80vh;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            overflow-y: auto;
+            z-index: 50;
+            display: none;
+        }
+
+        .report-item {
+            padding: 10px;
+            border-radius: 12px;
+            background: var(--glass);
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <p id="loadingText">Initializing AI Engine...</p>
+    </div>
+
+    <div class="camera-container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div class="scan-line"></div>
+        <div class="overlay">
+            <div class="status-badge">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">System Locked</span>
+            </div>
+            <div class="recognition-box" id="matchCard" style="display:none;">
+                <h2 id="matchName"></h2>
+                <p id="matchUSN"></p>
+                <p id="matchStatus"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="report-panel" id="reportPanel">
+        <h3 style="margin-bottom:15px; font-size:1rem;">Session Report</h3>
+        <div id="reportList"></div>
+    </div>
+
+    <script>
+        let students = [];
+        let isProcessing = false;
+        let sessionTracker = {}; // usn -> { firstSeen, lastSeen, presenceFrames, markedThisSession, alreadyMarked }
+        let sessionActive = true;
+        let remainingTime = 60; // 1-minute detection session
+        let mainInterval = null;
+        let timerInterval = null;
+
+        const SESSION_WINDOW = 30000; // 30 seconds
+        const PRESENCE_THRESHOLD = 20000; // 20 seconds
+        const INTERVAL = 500; // ms
+
+        async function init() {
+            // 1. Mandatory Password Check at Start
+            const password = prompt("AttendNet Administrator Security Check\nEnter password to unlock AI Recognition:");
+            if (password !== "student1") {
+                document.body.innerHTML = `
+                    <div style="padding:60px; text-align:center; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#0f172a; color:white;">
+                        <div style="font-size:4rem; margin-bottom:20px;">🔒</div>
+                        <h1 style="color:#ef4444; margin-bottom:10px;">Access Denied</h1>
+                        <p style="opacity:0.7">Incorrect administrative password. AI Recognition cannot be started.</p>
+                        <button onclick="location.reload()" style="margin-top:20px; padding:12px 24px; border-radius:12px; border:none; background:#6366f1; color:white; cursor:pointer; font-weight:600;">Try Again</button>
+                    </div>`;
+                return;
+            }
+
+            reportPanel.style.display = 'block';
+
+            try {
+                loadingText.innerText = "Synchronizing AI Engine & Camera...";
+                
+                const modelPath = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+                const modelPromise = Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(modelPath)
+                ]).catch(err => {
+                    throw new Error(`Model Load Failure: ${err.message}. Network or Browser Cache issue.`);
+                });
+
+                const cameraPromise = navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                }).catch(err => {
+                    throw new Error("Camera Access Denied or in Use by another Tab. Please close other AttendNet tabs.");
+                });
+
+                await fetchDescriptors();
+                const [_, stream] = await Promise.all([modelPromise, cameraPromise]);
+                
+                video.srcObject = stream;
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 300);
+
+                statusText.innerText = students.length > 0 ? `Recognition Active | 60s` : "No students registered.";
+                if (students.length > 0) {
+                    statusDot.classList.add('active');
+                    startGlobalTimer();
+                }
+
+                video.onloadedmetadata = () => {
+                    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+                    faceapi.matchDimensions(canvas, displaySize);
+                    
+                    mainInterval = setInterval(async () => {
+                        if (isProcessing || !sessionActive) return;
+                        isProcessing = true;
+                        
+                        try {
+                            // High-Speed Mode: Reverted to Tiny Face Detector to prevent lag. Using high resolution (416) for accuracy.
+                            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+                                .withFaceLandmarks()
+                                .withFaceDescriptors();
+
+                            const context = canvas.getContext('2d');
+                            context.clearRect(0, 0, canvas.width, canvas.height);
+
+                            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                            resizedDetections.forEach(detection => {
+                                const result = findBestMatch(detection.descriptor);
+                                const box = detection.detection.box;
+                                
+                                let label = "";
+                                let score = (1 - (result ? result.distance : 1)).toFixed(2);
+                                let color = "#ef4444";
+
+                                if (result && result.distance < 0.45) { // Confidence threshold
+                                    const student = result.student;
+                                    label = `${student.usn} [${score}]`;
+                                    color = "#10b981";
+                                    updatePresence(student);
+                                    
+                                    const stats = sessionTracker[student.usn];
+                                    if (stats && !stats.marked) {
+                                        const progress = Math.min((stats.presenceFrames * INTERVAL / PRESENCE_THRESHOLD) * 100, 100);
+                                        label += ` | ${Math.round(progress)}%`;
+                                    }
+                                } else {
+                                    label = `Scanning... [${score}]`;
+                                }
+
+                                // Rendering with Mirror Fix
+                                context.strokeStyle = color;
+                                context.lineWidth = 3;
+                                context.strokeRect(box.x, box.y, box.width, box.height);
+                                
+                                context.save();
+                                context.scale(-1, 1);
+                                context.fillStyle = color;
+                                context.font = "bold 16px Outfit";
+                                const textRectX = -(box.x + box.width);
+                                context.globalAlpha = 0.8;
+                                context.fillRect(textRectX, box.y - 30, box.width, 30);
+                                context.globalAlpha = 1.0;
+                                context.fillStyle = "white";
+                                context.fillText(label, textRectX + 5, box.y - 10);
+                                context.restore();
+                            });
+                        } catch (err) { console.error(err); }
+                        isProcessing = false;
+                    }, INTERVAL);
+                };
+
+            } catch (err) {
+                console.error(err);
+                loadingText.innerHTML = `<div style="color:#ef4444; padding:20px; background:rgba(239,68,68,0.1); border-radius:12px;">
+                    <h3 style="margin-top:0">⚠️ System Error</h3>
+                    <p>${err.message}</p>
+                    <button onclick="location.reload()" style="background:#ef4444; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer">Retry System Sync</button>
+                </div>`;
+            }
+        }
+
+        function startGlobalTimer() {
+            timerInterval = setInterval(() => {
+                remainingTime--;
+                statusText.innerText = `Recognition Active | ${remainingTime}s`;
+                
+                if (remainingTime <= 10) {
+                    statusText.style.color = "#ef4444";
+                }
+
+                if (remainingTime <= 0) {
+                    clearInterval(timerInterval);
+                    endSession();
+                }
+            }, 1000);
+        }
+
+        function endSession() {
+            sessionActive = false;
+            clearInterval(mainInterval);
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            
+            // Generate Final Report Overlay
+            const markedInSession = Object.entries(sessionTracker)
+                .filter(([_, stats]) => stats.markedThisSession)
+                .map(([usn, _]) => usn);
+
+            const alreadyMarked = Object.entries(sessionTracker)
+                .filter(([_, stats]) => stats.alreadyMarked)
+                .map(([usn, _]) => usn);
+
+            document.body.innerHTML += `
+                <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.95); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px;">
+                    <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:32px; padding:40px; width:100%; max-width:500px; text-align:center; backdrop-filter:blur(24px); animation: slideUp 0.5s ease-out;">
+                        <h1 style="font-size:2rem; margin-bottom:10px;">Session Completed</h1>
+                        <p style="opacity:0.7; margin-bottom:30px;">Attendance cycle finished in 60 seconds.</p>
+                        
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; text-align:left; margin-bottom:30px;">
+                            <div style="background:rgba(16,185,129,0.1); padding:20px; border-radius:20px; border:1px solid rgba(16,185,129,0.2);">
+                                <h3 style="color:#10b981; font-size:0.8rem; text-transform:uppercase;">Marked Present</h3>
+                                <div style="font-size:2.5rem; font-weight:700;">${markedInSession.length}</div>
+                            </div>
+                            <div style="background:rgba(245,158,11,0.1); padding:20px; border-radius:20px; border:1px solid rgba(245,158,11,0.2);">
+                                <h3 style="color:#f59e0b; font-size:0.8rem; text-transform:uppercase;">Already Logged</h3>
+                                <div style="font-size:2.5rem; font-weight:700;">${alreadyMarked.length}</div>
+                            </div>
+                        </div>
+
+                        <div style="background:rgba(255,255,255,0.03); border-radius:20px; padding:20px; max-height:200px; overflow-y:auto; text-align:left; margin-bottom:30px;">
+                            <h4 style="font-size:0.8rem; opacity:0.5; margin-bottom:10px;">Newly Marked USNs:</h4>
+                            <p style="font-size:0.9rem; line-height:1.5;">${markedInSession.length > 0 ? markedInSession.join(', ') : 'No new marks.'}</p>
+                        </div>
+
+                        <div style="display:flex; gap:12px;">
+                            <button onclick="location.reload()" style="flex:1; padding:16px; border-radius:16px; border:none; background:#6366f1; color:white; font-weight:600; cursor:pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">Next Session</button>
+                            <button onclick="location.href='/admin'" style="padding:16px 32px; border-radius:16px; border:1px solid rgba(255,255,255,0.1); background:transparent; color:white; cursor:pointer;">Exit</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updatePresence(student) {
+            const now = Date.now();
+            const usn = student.usn;
+
+            if (!sessionTracker[usn]) {
+                sessionTracker[usn] = {
+                    firstSeen: now,
+                    presenceFrames: 1,
+                    marked: false,
+                    markedThisSession: false,
+                    alreadyMarked: false
+                };
+            } else {
+                const stats = sessionTracker[usn];
+                if (stats.marked || stats.alreadyMarked) return;
+
+                // 30-Second Rolling Window: Reset if expired
+                if (now - stats.firstSeen > SESSION_WINDOW) {
+                    stats.firstSeen = now;
+                    stats.presenceFrames = 1;
+                    return;
+                }
+
+                stats.presenceFrames++;
+
+                // Mark Attendance ONLY after 20s of cumulative presence
+                if (stats.presenceFrames * INTERVAL >= PRESENCE_THRESHOLD) {
+                    markAttendance(student);
+                    stats.marked = true;
+                }
+            }
+        }
+
+        async function fetchDescriptors() {
+            try {
+                const response = await fetch('/api/students/descriptors');
+                students = await response.json();
+            } catch (err) { console.error("Sync failed:", err); }
+        }
+
+        function findBestMatch(currentDescriptor) {
+            let bestMatch = null;
+            let minDistance = 1.0;
+            students.forEach(student => {
+                if (!student.face_descriptor) return;
+                const distance = faceapi.euclideanDistance(currentDescriptor, student.face_descriptor);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestMatch = { student, distance };
+                }
+            });
+            return bestMatch;
+        }
+
+        async function markAttendance(student) {
+            try {
+                const response = await fetch('/api/attendance/mark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_id: student.id, usn: student.usn, status: 'Present' })
+                });
+                const result = await response.json();
+                
+                const stats = sessionTracker[student.usn];
+                if (result.success) {
+                    stats.markedThisSession = true;
+                } else if (result.message && result.message.includes("Already")) {
+                    stats.alreadyMarked = true;
+                }
+
+                const item = document.createElement('div');
+                item.className = 'report-item';
+                item.style.borderLeft = `4px solid ${result.success ? '#10b981' : '#f59e0b'}`;
+                item.innerHTML = `
+                    <strong>${student.usn}</strong><br>
+                    <span style="color:${result.success ? '#10b981' : '#f59e0b'}">
+                        ${result.success ? '✓ Marked Present' : '⚠ Already Marked'}
+                    </span>
+                `;
+                reportList.prepend(item);
+            } catch (err) {
+                console.error("Marking failed:", err);
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
