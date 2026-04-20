@@ -214,6 +214,9 @@
         </div>
     </div>
 
+    <button id="flipBtn" onclick="flipCamera()" style="position:fixed; bottom:40px; right:40px; width:72px; height:72px; border-radius:50%; border:3px solid white; background:#6366f1; color:white; font-size:36px; cursor:pointer; z-index:2147483647; box-shadow:0 15px 35px rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; transition:transform 0.2s;">↻</button>
+
+
     <div class="report-panel" id="reportPanel">
         <h3 style="margin-bottom:15px; font-size:1rem;">Session Report</h3>
         <div id="reportList"></div>
@@ -227,12 +230,13 @@
         let remainingTime = 60; // 1-minute detection session
         let mainInterval = null;
         let timerInterval = null;
+        let currentFacingMode = 'user';
 
         const SESSION_WINDOW = 30000; // 30 seconds
         const PRESENCE_THRESHOLD = 20000; // 20 seconds
         const INTERVAL = 500; // ms
 
-        async function init() {
+        async function init(mode = 'user') {
             // 1. Mandatory Password Check at Start
             const password = prompt("AttendNet Administrator Security Check\nEnter password to unlock AI Recognition:");
             if (password !== "student1") {
@@ -261,7 +265,7 @@
                 });
 
                 const cameraPromise = navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                    video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } } 
                 }).catch(err => {
                     throw new Error("Camera Access Denied or in Use by another Tab. Please close other AttendNet tabs.");
                 });
@@ -282,6 +286,8 @@
                 video.onloadedmetadata = () => {
                     const displaySize = { width: video.videoWidth, height: video.videoHeight };
                     faceapi.matchDimensions(canvas, displaySize);
+                    
+                    if (mainInterval) clearInterval(mainInterval);
                     
                     mainInterval = setInterval(async () => {
                         if (isProcessing || !sessionActive) return;
@@ -405,6 +411,9 @@
                         <div style="background:rgba(255,255,255,0.03); border-radius:20px; padding:20px; max-height:200px; overflow-y:auto; text-align:left; margin-bottom:30px;">
                             <h4 style="font-size:0.8rem; opacity:0.5; margin-bottom:10px;">Newly Marked USNs:</h4>
                             <p style="font-size:0.9rem; line-height:1.5;">${markedInSession.length > 0 ? markedInSession.join(', ') : 'No new marks.'}</p>
+
+                            <h4 style="font-size:0.8rem; opacity:0.5; margin-top:20px; margin-bottom:10px;">Already Logged USNs:</h4>
+                            <p style="font-size:0.9rem; line-height:1.5; color:#f59e0b;">${alreadyMarked.length > 0 ? alreadyMarked.join(', ') : 'None.'}</p>
                         </div>
 
                         <div style="display:flex; gap:12px;">
@@ -501,7 +510,43 @@
             }
         }
 
-        window.onload = init;
+        async function flipCamera() {
+            if (!sessionActive) return;
+            currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+            
+            const flipBtn = document.getElementById('flipBtn');
+            flipBtn.style.opacity = '0.5';
+            flipBtn.style.pointerEvents = 'none';
+
+            // stop current stream to release hardware
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                if (mainInterval) clearInterval(mainInterval);
+            }
+
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                video.srcObject = newStream;
+                if (currentFacingMode === 'user') {
+                    video.style.transform = 'scaleX(-1)';
+                    canvas.style.transform = 'scaleX(-1)';
+                } else {
+                    video.style.transform = 'scaleX(1)';
+                    canvas.style.transform = 'scaleX(1)';
+                }
+            } catch (err) {
+                alert("Camera flip failed: " + err.message);
+            }
+
+            setTimeout(() => {
+                flipBtn.style.opacity = '1';
+                flipBtn.style.pointerEvents = 'auto';
+            }, 500);
+        }
+
+        window.onload = () => init();
     </script>
 </body>
 </html>
