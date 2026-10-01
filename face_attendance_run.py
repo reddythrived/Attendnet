@@ -144,6 +144,57 @@ current_fps = 0
 
 today_str = datetime.now().strftime("%Y-%m-%d")
 info_line = f"Date: {today_str}  |  ESC to finish"
+# Liveness and Anti-Spoofing tracking
+face_history = {}
+
+def check_liveness(face_crop, student_key):
+    """
+    Multi-factor Anti-Spoofing Check:
+    1. Texture / Laplacian Variance (detects extreme blur or flat paper printouts)
+    2. Temporal Micro-motion (detects completely static printed photos / motionless phone screens)
+    """
+    if face_crop.size == 0:
+        return False, "Invalid Face"
+    
+    gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    
+    # 1. Texture analysis (Laplacian variance)
+    laplacian_var = cv2.Laplacian(gray_crop, cv2.CV_64F).var()
+    if laplacian_var < 35.0: # Too blurry / out of focus spoof
+        return False, "Low Texture / Blur"
+    
+    # 2. Temporal micro-motion tracking
+    current_time = time.time()
+    resized_gray = cv2.resize(gray_crop, (64, 64))
+    
+    if student_key not in face_history:
+        face_history[student_key] = {
+            'last_frame': resized_gray,
+            'motion_frames': 0,
+            'total_frames': 1,
+            'last_time': current_time
+        }
+        return True, "Verifying Liveness"
+    
+    hist = face_history[student_key]
+    prev_frame = hist['last_frame']
+    
+    # Calculate optical pixel difference
+    diff = cv2.absdiff(resized_gray, prev_frame)
+    motion_score = np.mean(diff)
+    
+    hist['last_frame'] = resized_gray
+    hist['total_frames'] += 1
+    
+    # Natural live faces have micro-motions (score typically between 0.8 and 18.0)
+    # A completely rigid photo stuck on a stand has motion < 0.2
+    if 0.5 < motion_score < 25.0:
+        hist['motion_frames'] += 1
+        
+    is_live = hist['motion_frames'] >= 2 or hist['total_frames'] < 4
+    status_text = "Live" if is_live else "Spoof / Static Photo"
+    return is_live, status_text
+
 while time.time() - start_time < detection_window:
 
     ret, frame = cam.read()
@@ -230,7 +281,7 @@ while time.time() - start_time < detection_window:
                 face_img = cv2.cvtColor(face_gray, cv2.COLOR_GRAY2BGR)
             
             try:
-                if process_frame:
+                if process_frame and face_img.shape[0] > 20 and face_img.shape[1] > 20:
                     rep = DeepFace.represent(
                         img_path=face_img,
                         model_name=MODEL_NAME,
@@ -247,14 +298,23 @@ while time.time() - start_time < detection_window:
                     # Lower threshold for low light recognition
                     threshold = SIMILARITY_THRESHOLD - 0.15 if mean_brightness < 100 else SIMILARITY_THRESHOLD
                     if best_score > threshold:
-                        name = known_names[best_index]
-                        color = (0,255,0)
-                        name = f"{name} ({best_score:.2f})"
-                        if known_names[best_index] not in presence_timer:
-                            presence_timer[known_names[best_index]] = time.time()
-                        stay_time = time.time() - presence_timer[known_names[best_index]]
-                        if stay_time >= required_presence:
-                            detected_students.add(known_names[best_index])
+                        matched_student = known_names[best_index]
+                        
+                        # ANTI-SPOOFING / LIVENESS CHECK
+                        is_live, liveness_msg = check_liveness(face_img, matched_student)
+                        
+                        if is_live:
+                            color = (0,255,0)
+                            name = f"{matched_student} ({best_score:.2f}) [LIVE]"
+                            if matched_student not in presence_timer:
+                                presence_timer[matched_student] = time.time()
+                            stay_time = time.time() - presence_timer[matched_student]
+                            if stay_time >= required_presence:
+                                detected_students.add(matched_student)
+                        else:
+                            color = (0,165,255) # Orange for spoof alert
+                            name = f"{matched_student} [⚠️ SPOOF / STATIC]"
+                            # Do NOT increment presence timer on spoof
                     else:
                         name = "Unknown"
                         unknown_face_found = True

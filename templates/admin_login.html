@@ -85,13 +85,24 @@
 <body>
     <div class="card">
         <h1>Admin Vault</h1>
-        <form action="/admin/login" method="POST">
+        {% if request.args.get('next') and 'recognition' in request.args.get('next') %}
+            <p style="font-size: 0.85rem; color: #94a3b8; margin-top: -20px; margin-bottom: 24px;">Enter Administrator Password to Launch AI Recognition Camera</p>
+        {% endif %}
+        <form action="{{ url_for('admin_login', next=request.args.get('next', '')) }}" method="POST">
+            <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
             <div class="form-group">
                 <label>Access Password</label>
-                <input type="password" name="password" placeholder="••••••••" required>
+                <input type="password" name="password" placeholder="••••••••" required autofocus>
             </div>
-            <button type="submit" class="btn">Unlock Dashboard</button>
+            <button type="submit" class="btn">
+                {% if request.args.get('next') and 'recognition' in request.args.get('next') %}
+                    Unlock & Start AI Camera
+                {% else %}
+                    Unlock Dashboard
+                {% endif %}
+            </button>
         </form>
     </div>
 </body>
 </html>
+

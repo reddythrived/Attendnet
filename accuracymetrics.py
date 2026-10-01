@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 # Configuration for Web Model approximation
 DATASET = "dataset"
 # Reverting to VGG-Face as it yields the highest empirical accuracy on this specific dataset.
-MODEL_NAME = "VGG-Face" 
+MODEL_NAME = "Facenet" 
 SIMILARITY_THRESHOLD = 0.60
 OUTPUT_DIR = "attendnet_metric_results"
 

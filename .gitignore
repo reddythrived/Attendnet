@@ -21,6 +21,7 @@ Thumbs.db
 # App outputs / generated artifacts
 attendance/*.xlsx
 attendance/*.xls
+attendance/*.json
 embeddings_cache.pkl
 evaluation_results/
 *.log

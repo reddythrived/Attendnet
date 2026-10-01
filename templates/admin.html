@@ -117,31 +117,53 @@
             border-radius: 999px;
             font-size: 0.75rem;
             font-weight: 700;
-            background: #10b981;
-            color: #064e3b;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
-        .actions { display: flex; gap: 8px; }
+        .status-present {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-absent {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Admin Dashboard</h1>
+            <div>
+                <h1>Admin Dashboard</h1>
+                <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 4px;">AttendNet AI System &bull; Live Attendance Monitor</p>
+            </div>
             <div class="actions">
+                <a href="/teacher/dashboard" class="btn btn-outline">👨‍🏫 Teacher Portal</a>
                 <a href="/api/admin/export" class="btn btn-outline">📂 Export to Excel</a>
                 <a href="/recognition" class="btn">📹 Start AI Recognition</a>
+                <a href="/logout" class="btn" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3);">Sign Out</a>
             </div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Registered Students</div>
-                <div class="stat-value" id="studentCount">Loading...</div>
+                <div class="stat-value" id="studentCount">...</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Check-ins Today</div>
-                <div class="stat-value" id="todayCheckins">Loading...</div>
+                <div class="stat-value" style="color: #34d399;" id="todayCheckins">...</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Absent Today</div>
+                <div class="stat-value" style="color: #f87171;" id="absentCount">...</div>
             </div>
         </div>
 
@@ -151,12 +173,12 @@
                     <tr>
                         <th>Name</th>
                         <th>USN</th>
-                        <th>Status</th>
-                        <th>Last Seen</th>
+                        <th>Status (Today)</th>
+                        <th>Check-in Time</th>
                     </tr>
                 </thead>
                 <tbody id="attendanceTable">
-                    <!-- Data will be loaded via JS -->
+                    <tr><td colspan="4" style="text-align: center; color: var(--text-dim); padding: 30px;">Loading dashboard data...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -165,44 +187,54 @@
     <script>
         async function loadDashboardData() {
             try {
-                const res = await fetch('/api/students/descriptors');
+                const res = await fetch('/api/admin/stats');
                 const data = await res.json();
                 
-                if (data.error || data.message) {
-                    const errorMsg = data.message || data.error;
-                    if (errorMsg.includes('PGRST205') || errorMsg.includes('not find the table')) {
-                        document.getElementById('studentCount').innerHTML = '<span style="color: #ef4444; font-size: 0.8rem;">Setup Required: Table "students" missing in Supabase. Run schema.sql!</span>';
-                    } else {
-                        document.getElementById('studentCount').innerText = "Database Error";
-                    }
+                if (!data.success) {
+                    document.getElementById('studentCount').innerText = "Error";
+                    document.getElementById('todayCheckins').innerText = "Error";
                     return;
                 }
 
-                document.getElementById('studentCount').innerText = data.length || 0;
+                const students = data.students || [];
+                const registeredCount = data.registered_count || students.length;
+                const checkinsToday = data.today_checkins || 0;
+                const absentToday = Math.max(0, registeredCount - checkinsToday);
+
+                document.getElementById('studentCount').innerText = registeredCount;
+                document.getElementById('todayCheckins').innerText = checkinsToday;
+                document.getElementById('absentCount').innerText = absentToday;
                 
                 // Populate table
                 const table = document.getElementById('attendanceTable');
-                if (data.length === 0) {
-                    table.innerHTML = '<tr><td colspan="4" style="text-align:center; color: #94a3b8; padding: 40px;">No students registered yet. Click "Start AI Recognition" to register or use the registration form.</td></tr>';
+                if (students.length === 0) {
+                    table.innerHTML = '<tr><td colspan="4" style="text-align:center; color: #94a3b8; padding: 40px;">No students registered yet. Click "Start AI Recognition" or use the registration portal.</td></tr>';
                 } else {
-                    table.innerHTML = data.map(s => `
-                        <tr>
-                            <td>${s.name}</td>
-                            <td>${s.usn}</td>
-                            <td><span class="status-pill">Active</span></td>
-                            <td>Secure Cloud Log</td>
-                        </tr>
-                    `).join('');
+                    table.innerHTML = students.map(s => {
+                        const isPresent = s.status === 'Present';
+                        const badgeClass = isPresent ? 'status-present' : 'status-absent';
+                        const badgeText = isPresent ? '● Present' : '○ Absent';
+                        const timeStr = s.marked_at ? (new Date(s.marked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '—';
+                        return `
+                            <tr>
+                                <td><strong>${s.name}</strong></td>
+                                <td>${s.usn}</td>
+                                <td><span class="status-pill ${badgeClass}">${badgeText}</span></td>
+                                <td style="color: var(--text-dim); font-size: 0.85rem;">${timeStr}</td>
+                            </tr>
+                        `;
+                    }).join('');
                 }
-                
-                document.getElementById('todayCheckins').innerText = "Syncing...";
             } catch (err) {
                 console.error("Dashboard Load Error:", err);
                 document.getElementById('studentCount').innerText = "Connection Error";
+                document.getElementById('todayCheckins').innerText = "Offline";
             }
         }
         
         loadDashboardData();
+        // Auto-refresh every 15 seconds while open
+        setInterval(loadDashboardData, 15000);
     </script>
 </body>
 </html>

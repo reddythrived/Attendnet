@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import base64
 import json
+import time
+import threading
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session
 from werkzeug.utils import secure_filename
@@ -20,6 +22,7 @@ app.secret_key = os.getenv("SECRET_KEY", "secure_attendnet_key") # Read from env
 # Constants
 DATASET = "dataset"
 ATT_FILE = "attendance/attendance.xlsx"
+TEACHERS_LOCAL_FILE = "attendance/teachers.json"
 NUM_IMAGES = 6
 
 # Supabase Configuration
@@ -36,6 +39,27 @@ if SUPABASE_URL and SUPABASE_KEY:
         print("Connected to Supabase Successfully!")
     except Exception as e:
         print(f"Error connecting to Supabase: {e}")
+
+# -----------------------
+# Supabase Keep-Alive Service
+# Prevents Supabase project from going to sleep / pausing due to inactivity
+# -----------------------
+def supabase_keep_alive_worker():
+    """Background worker that queries Supabase every 12 hours to prevent pause/sleep"""
+    while True:
+        try:
+            if supabase:
+                # Perform a lightweight ping query
+                res = supabase.from_("students").select("id").limit(1).execute()
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✓ Supabase Keep-Alive Ping Executed Successfully.")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠ Supabase Keep-Alive Warning: {e}")
+        # Sleep for 12 hours (43200 seconds)
+        time.sleep(43200)
+
+# Start Keep-Alive daemon thread
+keep_alive_thread = threading.Thread(target=supabase_keep_alive_worker, daemon=True)
+keep_alive_thread.start()
 
 # -----------------------
 # Utility Functions
@@ -57,19 +81,43 @@ def sync_excel_from_db():
         
         # Fetch all attendance logs
         att_res = supabase.from_("attendance").select("usn, marked_at, status").execute()
-        logs = att_res.data
+        logs = att_res.data or []
         
         for log in logs:
+            if not log.get('marked_at'): continue
             date_str = log['marked_at'][:10] # Extract YYYY-MM-DD
             if date_str not in df.columns:
                 df[date_str] = "Absent"
-            df.loc[df["Reg_No"] == log["usn"], date_str] = log["status"]
+            df.loc[df["Reg_No"] == log["usn"], date_str] = log.get("status", "Present")
             
         os.makedirs(os.path.dirname(ATT_FILE), exist_ok=True)
         df.to_excel(ATT_FILE, index=False)
         print("  ✓ Local Excel synced with database.")
     except Exception as e:
         print(f"Error syncing Excel: {e}")
+
+def get_local_teachers():
+    """Local fallback storage for teachers if Supabase table is not yet created"""
+    if os.path.exists(TEACHERS_LOCAL_FILE):
+        try:
+            with open(TEACHERS_LOCAL_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_local_teacher(teacher_data):
+    """Save teacher to local json backup"""
+    os.makedirs(os.path.dirname(TEACHERS_LOCAL_FILE), exist_ok=True)
+    teachers = get_local_teachers()
+    # Check if duplicate email
+    for t in teachers:
+        if t['email'].lower() == teacher_data['email'].lower():
+            return False
+    teachers.append(teacher_data)
+    with open(TEACHERS_LOCAL_FILE, 'w') as f:
+        json.dump(teachers, f, indent=2)
+    return True
 
 # -----------------------
 # Web Routes
@@ -83,28 +131,132 @@ def index():
 @app.route("/recognition")
 def recognition():
     """Page for marking attendance using AI - High Security Area"""
-    # Force a fresh check for admin to avoid sticky sessions
-    if not session.get("admin"):
+    # Allow either Admin or Teacher session
+    if not session.get("admin") and not session.get("teacher"):
         return redirect(url_for("admin_login", next=url_for("recognition")))
     return render_template("recognition.html")
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
+    next_page = request.form.get("next") or request.args.get("next")
     if request.method == "POST":
         password = request.form.get("password")
         if password == ADMIN_PASSWORD:
             session["admin"] = True
-            # Handle redirection back to where they came from
-            next_page = request.args.get("next")
-            return redirect(next_page or url_for("admin_dashboard"))
+            # Direct redirect to the destination (e.g. /recognition or /admin)
+            if next_page and next_page.strip():
+                return redirect(next_page)
+            return redirect(url_for("admin_dashboard"))
         return render_template("error.html", error_message="Invalid Admin Password")
-    return render_template("admin_login.html")
+    return render_template("admin_login.html", next=next_page)
 
 @app.route("/admin")
 def admin_dashboard():
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
     return render_template("admin.html")
+
+# -----------------------
+# Teacher Portal Routes
+# -----------------------
+
+@app.route("/teacher/register", methods=["GET", "POST"])
+def teacher_register():
+    """Enroll a new faculty member. Requires Admin Password for Authorization"""
+    if request.method == "GET":
+        return render_template("teacher_register.html")
+
+    admin_password = request.form.get("admin_password", "").strip()
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip()
+    department = request.form.get("department", "").strip()
+    phone = request.form.get("phone", "").strip()
+    password = request.form.get("password", "").strip()
+
+    # 1. Verify Admin Password
+    if admin_password != ADMIN_PASSWORD:
+        return render_template("error.html", error_message="Admin Authorization Failed. Incorrect Admin Password provided for teacher enrollment.")
+
+    if not all([name, email, password]):
+        return render_template("error.html", error_message="Name, Email/ID, and Password are required.")
+
+    # 2. Attempt Save to Supabase (with fallback to local storage)
+    teacher_record = {
+        "name": name,
+        "email": email,
+        "department": department,
+        "phone": phone,
+        "password": password
+    }
+
+    saved_in_cloud = False
+    if supabase:
+        try:
+            supabase.from_("teachers").insert(teacher_record).execute()
+            saved_in_cloud = True
+        except Exception as e:
+            print(f"Supabase teachers insert warning (using local fallback if needed): {e}")
+
+    # Also save to local fallback
+    save_local_teacher(teacher_record)
+
+    return render_template("success.html", name=name, reg_no=f"Teacher: {email}")
+
+@app.route("/teacher/login", methods=["GET", "POST"])
+def teacher_login():
+    """Teacher authentication portal"""
+    if request.method == "POST":
+        email = request.form.get("email", "").strip()
+        password = request.form.get("password", "").strip()
+
+        authenticated = False
+        teacher_info = None
+
+        # Check Supabase first
+        if supabase:
+            try:
+                res = supabase.from_("teachers").select("id, name, email, department, password").eq("email", email).execute()
+                if res.data and len(res.data) > 0:
+                    t = res.data[0]
+                    if t["password"] == password:
+                        authenticated = True
+                        teacher_info = t
+            except Exception as e:
+                print(f"Teacher login Supabase check error: {e}")
+
+        # Check Local fallback if not found in cloud
+        if not authenticated:
+            local_teachers = get_local_teachers()
+            for t in local_teachers:
+                if t["email"].lower() == email.lower() and t["password"] == password:
+                    authenticated = True
+                    teacher_info = t
+                    break
+
+        if authenticated and teacher_info:
+            session["teacher"] = True
+            session["teacher_name"] = teacher_info.get("name", "Faculty")
+            session["teacher_email"] = teacher_info.get("email", email)
+            session["teacher_dept"] = teacher_info.get("department", "Academics")
+            return redirect(url_for("teacher_dashboard"))
+
+        return render_template("error.html", error_message="Invalid Teacher Email/ID or Password.")
+
+    return render_template("teacher_login.html")
+
+@app.route("/teacher/dashboard")
+def teacher_dashboard():
+    """Teacher Attendance Management & Override Dashboard"""
+    if not session.get("teacher") and not session.get("admin"):
+        return redirect(url_for("teacher_login"))
+
+    teacher_name = session.get("teacher_name", "Faculty Member")
+    teacher_dept = session.get("teacher_dept", "Department")
+    return render_template("teacher_dashboard.html", teacher_name=teacher_name, teacher_dept=teacher_dept)
+
+# -----------------------
+# Student Portal Routes
+# -----------------------
 
 @app.route("/student/login", methods=["GET", "POST"])
 def student_login():
@@ -120,7 +272,6 @@ def student_login():
                 return render_template("error.html", error_message="USN not registered.")
             
             student = res.data[0]
-            # Check password (plain text as requested for 'student1', or hashed)
             stored_pwd = student.get("password", "student1")
             
             if password == stored_pwd or (stored_pwd.startswith("pbkdf2:sha256") and check_password_hash(stored_pwd, password)):
@@ -142,25 +293,15 @@ def student_dashboard():
     
     usn = session.get("student_usn")
     
-    # Fetch actual attendance for this student
     try:
-        # Get all attendance records for this student
         res = supabase.from_("attendance").select("marked_at, status").eq("usn", usn).order("marked_at", desc=True).execute()
-        attendance = res.data
+        attendance = res.data or []
         
-        # Calculate Stats
-        # For Total G-Days, we count UNIQUE dates present in the attendance table for ANY student (global school days)
         all_dates_res = supabase.from_("attendance").select("marked_at").execute()
-        all_dates = set([d['marked_at'][:10] for d in (all_dates_res.data or [])])
+        all_dates = set([d['marked_at'][:10] for d in (all_dates_res.data or []) if d.get('marked_at')])
         
-        # We ensure a minimum total_days (baseline) so the dashboard feels established
-        # If there are only a few dates, we assume at least a session count based on total table activity
         total_days = len(all_dates) if all_dates else 0
-        
-        # Specific Present count for THIS student
-        present_days = len([a for a in attendance if a['status'] == 'Present'])
-        
-        # Accurate Percentage Calculation
+        present_days = len([a for a in attendance if a.get('status') == 'Present'])
         attendance_percentage = (present_days / total_days * 100) if total_days > 0 else 0
         
     except Exception as e:
@@ -182,52 +323,189 @@ def student_dashboard():
 # API Endpoints
 # -----------------------
 
+@app.route("/api/keepalive")
+def api_keepalive():
+    """Manual or external ping endpoint to ensure Supabase stays active"""
+    status = "healthy"
+    db_status = "connected"
+    if supabase:
+        try:
+            supabase.from_("students").select("id").limit(1).execute()
+        except Exception as e:
+            db_status = f"error: {e}"
+            status = "degraded"
+    else:
+        db_status = "unconfigured"
+    
+    return jsonify({
+        "status": status,
+        "database": db_status,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route("/api/admin/stats")
+def get_admin_stats():
+    """Get real-time statistics for the Admin Dashboard"""
+    if not session.get("admin"):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    if not supabase:
+        return jsonify({"success": False, "message": "Database not connected"}), 500
+
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        # 1. Fetch all students
+        st_res = supabase.from_("students").select("id, name, usn, email").order("usn").execute()
+        students = st_res.data or []
+
+        # 2. Fetch today's attendance logs
+        att_res = supabase.from_("attendance").select("student_id, usn, status, marked_at") \
+            .gte("marked_at", f"{today}T00:00:00") \
+            .lte("marked_at", f"{today}T23:59:59") \
+            .execute()
+        
+        logs_map = {log["usn"]: log for log in (att_res.data or [])}
+
+        present_count = 0
+        formatted_students = []
+        for s in students:
+            usn = s["usn"]
+            log = logs_map.get(usn)
+            is_present = bool(log and log.get("status") == "Present")
+            if is_present:
+                present_count += 1
+            
+            formatted_students.append({
+                "id": s["id"],
+                "name": s["name"],
+                "usn": usn,
+                "status": log.get("status") if log else "Absent",
+                "marked_at": log.get("marked_at") if log else None
+            })
+
+        return jsonify({
+            "success": True,
+            "registered_count": len(students),
+            "today_checkins": present_count,
+            "date": today,
+            "students": formatted_students
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @app.route("/api/students/descriptors")
 def get_descriptors():
     """Fetch student names, IDs, and face descriptors for web recognition"""
     if not supabase: return jsonify([])
     try:
         res = supabase.from_("students").select("id, name, usn, face_descriptor").execute()
-        return jsonify(res.data)
+        return jsonify(res.data or [])
     except Exception as e:
         error_msg = str(e)
         if hasattr(e, 'message'): error_msg = e.message
         return jsonify({"error": error_msg}), 500
 
-@app.route("/api/students/photos/<usn>")
-def get_student_photos(usn):
-    """List local photos for a USN to assist in cloud sync"""
-    user_path = os.path.join(DATASET, usn)
-    if not os.path.exists(user_path):
-        return jsonify([])
-    
-    photos = [f for f in os.listdir(user_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    return jsonify(photos)
 
-@app.route("/dataset/<usn>/<filename>")
-def serve_dataset_photo(usn, filename):
-    """Serve a specific student photo from the local dataset folder"""
-    return send_file(os.path.join(DATASET, usn, filename))
+@app.route("/api/teacher/attendance")
+def get_teacher_attendance():
+    """Get all students and their attendance status for a specific date"""
+    if not session.get("teacher") and not session.get("admin"):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
 
-@app.route("/api/students/update_descriptor", methods=["POST"])
-def update_descriptor():
-    """Update a specific student's face descriptor in the cloud"""
-    data = request.json
-    usn = data.get("usn")
-    descriptor = data.get("descriptor")
-    
-    if not supabase: return jsonify({"success": False, "message": "No database connection"})
-    
+    target_date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+
+    if not supabase:
+        return jsonify({"success": False, "message": "Database not connected"}), 500
+
     try:
-        supabase.from_("students").update({"face_descriptor": descriptor}).eq("usn", usn).execute()
-        return jsonify({"success": True})
+        # 1. Fetch all registered students
+        st_res = supabase.from_("students").select("id, name, usn, email").order("usn").execute()
+        students = st_res.data or []
+
+        # 2. Fetch attendance logs for the target date
+        att_res = supabase.from_("attendance").select("student_id, usn, status, marked_at") \
+            .gte("marked_at", f"{target_date}T00:00:00") \
+            .lte("marked_at", f"{target_date}T23:59:59") \
+            .execute()
+        
+        logs_map = {log["usn"]: log for log in (att_res.data or [])}
+
+        roster = []
+        for s in students:
+            usn = s["usn"]
+            log = logs_map.get(usn)
+            roster.append({
+                "id": s["id"],
+                "name": s["name"],
+                "usn": usn,
+                "email": s["email"],
+                "status": log["status"] if log else "Absent",
+                "marked_at": log["marked_at"] if log else None
+            })
+
+        return jsonify({"success": True, "date": target_date, "students": roster})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/teacher/attendance/update", methods=["POST"])
+def update_teacher_attendance():
+    """Teacher override endpoint: Mark Present or Absent for any student and date"""
+    if not session.get("teacher") and not session.get("admin"):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    data = request.json or {}
+    usn = data.get("usn", "").strip().upper()
+    date_str = data.get("date", datetime.now().strftime("%Y-%m-%d"))
+    status = data.get("status", "Present")
+
+    if not usn or not date_str:
+        return jsonify({"success": False, "message": "USN and Date are required"}), 400
+
+    if not supabase:
+        return jsonify({"success": False, "message": "Database not connected"}), 500
+
+    try:
+        # Find student
+        st_res = supabase.from_("students").select("id").eq("usn", usn).execute()
+        if not st_res.data:
+            return jsonify({"success": False, "message": f"Student {usn} not found"}), 404
+        
+        student_id = st_res.data[0]["id"]
+
+        # Check existing attendance for this date
+        check = supabase.from_("attendance").select("id") \
+            .eq("usn", usn) \
+            .gte("marked_at", f"{date_str}T00:00:00") \
+            .lte("marked_at", f"{date_str}T23:59:59") \
+            .execute()
+
+        if check.data and len(check.data) > 0:
+            # Update existing log
+            log_id = check.data[0]["id"]
+            supabase.from_("attendance").update({
+                "status": status,
+                "marked_at": f"{date_str}T{datetime.now().strftime('%H:%M:%S')}Z"
+            }).eq("id", log_id).execute()
+        else:
+            # Insert new log
+            supabase.from_("attendance").insert({
+                "student_id": student_id,
+                "usn": usn,
+                "status": status,
+                "marked_at": f"{date_str}T{datetime.now().strftime('%H:%M:%S')}Z"
+            }).execute()
+
+        # Update local Excel file
+        sync_excel_from_db()
+
+        return jsonify({"success": True, "usn": usn, "status": status, "date": date_str})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route("/api/attendance/mark", methods=["POST"])
 def mark_attendance():
     """Mark attendance from the web recognition page"""
-    data = request.json
+    data = request.json or {}
     student_id = data.get("student_id")
     usn = data.get("usn")
     status = data.get("status", "Present")
@@ -235,11 +513,8 @@ def mark_attendance():
     if not supabase: return jsonify({"success": False, "message": "Database not connected."})
 
     try:
-        # Check if already marked today
         today = datetime.now().strftime("%Y-%m-%d")
-        # Match by USN and date
-        # Note: In Supabase marked_at is timestamptz, so we check for the date part
-        res = supabase.from_("attendance").select("id").eq("usn", usn).gte("marked_at", today).execute()
+        res = supabase.from_("attendance").select("id").eq("usn", usn).gte("marked_at", f"{today}T00:00:00").execute()
         
         if res.data:
             return jsonify({"success": False, "message": "Already marked for today."})
@@ -250,6 +525,9 @@ def mark_attendance():
             "usn": usn,
             "status": status
         }).execute()
+        
+        # Keep local Excel in sync
+        sync_excel_from_db()
         
         return jsonify({"success": True})
     except Exception as e:
@@ -291,30 +569,33 @@ def register():
         camera_photos_json = request.form.get("camera_photos", "")
         
         if camera_photos_json:
-            # Camera capture mode: decode base64 data URLs
             camera_photos = json.loads(camera_photos_json)
             for i, data_url in enumerate(camera_photos[:NUM_IMAGES]):
-                # Strip the "data:image/jpeg;base64," prefix
                 header, b64data = data_url.split(",", 1)
                 img_bytes = base64.b64decode(b64data)
                 path = f"dataset/{reg_no}/img{i+1}.jpg"
-                supabase.storage.from_(SUPABASE_BUCKET).upload(
-                    path=path,
-                    file=img_bytes,
-                    file_options={"content-type": "image/jpeg", "upsert": "true"}
-                )
+                try:
+                    supabase.storage.from_(SUPABASE_BUCKET).upload(
+                        path=path,
+                        file=img_bytes,
+                        file_options={"content-type": "image/jpeg", "upsert": "true"}
+                    )
+                except Exception as upload_err:
+                    print(f"Storage upload error for {path}: {upload_err}")
         else:
-            # File upload mode
             uploaded_files = request.files.getlist("photos")
             for i, file in enumerate(uploaded_files[:NUM_IMAGES]):
                 if file and file.filename:
                     file.seek(0)
                     path = f"dataset/{reg_no}/img{i+1}.jpg"
-                    supabase.storage.from_(SUPABASE_BUCKET).upload(
-                        path=path,
-                        file=file.read(),
-                        file_options={"content-type": "image/jpeg", "upsert": "true"}
-                    )
+                    try:
+                        supabase.storage.from_(SUPABASE_BUCKET).upload(
+                            path=path,
+                            file=file.read(),
+                            file_options={"content-type": "image/jpeg", "upsert": "true"}
+                        )
+                    except Exception as upload_err:
+                        print(f"Storage upload error for {path}: {upload_err}")
                 
         # Sync local Excel backup
         sync_excel_from_db()
@@ -324,7 +605,6 @@ def register():
     except Exception as e:
         error_msg = str(e)
         try:
-            # Try to parse Supabase error objects
             if hasattr(e, 'message'): 
                 error_msg = e.message
             elif isinstance(e.args[0], dict):
@@ -339,7 +619,8 @@ def register():
 @app.route("/api/admin/export")
 def export_excel():
     """Export the latest database state to Excel and download"""
-    if not session.get("admin"): return redirect(url_for("admin_login"))
+    if not session.get("admin") and not session.get("teacher"): 
+        return redirect(url_for("admin_login"))
     sync_excel_from_db()
     if os.path.exists(ATT_FILE):
         return send_file(ATT_FILE, as_attachment=True)
@@ -348,9 +629,15 @@ def export_excel():
 @app.route("/logout")
 def logout():
     session.pop("admin", None)
+    session.pop("teacher", None)
+    session.pop("teacher_name", None)
+    session.pop("teacher_email", None)
+    session.pop("teacher_dept", None)
+    session.pop("student_id", None)
     return redirect(url_for("index"))
 
 if __name__ == "__main__":
     os.makedirs(DATASET, exist_ok=True)
-    # Important: host='0.0.0.0' allows mobile devices on same Wi-Fi to connect
+    os.makedirs("attendance", exist_ok=True)
+    print("Starting AttendNet Server on http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=True)
