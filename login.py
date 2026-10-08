@@ -461,6 +461,10 @@ def update_teacher_attendance():
     if not usn or not date_str:
         return jsonify({"success": False, "message": "USN and Date are required"}), 400
 
+    today = datetime.now().strftime("%Y-%m-%d")
+    if date_str > today:
+        return jsonify({"success": False, "message": "Cannot mark or modify attendance for future dates"}), 400
+
     if not supabase:
         return jsonify({"success": False, "message": "Database not connected"}), 500
 

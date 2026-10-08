@@ -322,7 +322,7 @@
         <div class="controls-bar">
             <div class="date-picker-wrap">
                 <label for="attDate"><strong>Date:</strong></label>
-                <input type="date" id="attDate" value="">
+                <input type="date" id="attDate" value="" max="">
                 <button class="btn btn-outline" onclick="loadAttendance()">Refresh</button>
             </div>
 
@@ -360,9 +360,11 @@
         let allStudents = [];
         let attendanceLogs = {};
 
-        // Default to today's date
+        // Default to today's date and disable future dates
         const todayStr = new Date().toISOString().split('T')[0];
-        document.getElementById('attDate').value = todayStr;
+        const dateInput = document.getElementById('attDate');
+        dateInput.value = todayStr;
+        dateInput.max = todayStr; // Prevent selection of future dates
 
         function showToast(msg, isSuccess = true) {
             const toast = document.getElementById('toast');
@@ -373,7 +375,12 @@
         }
 
         async function loadAttendance() {
-            const selectedDate = document.getElementById('attDate').value || todayStr;
+            let selectedDate = document.getElementById('attDate').value || todayStr;
+            if (selectedDate > todayStr) {
+                showToast("Cannot select future dates. Resetting to today.", false);
+                document.getElementById('attDate').value = todayStr;
+                selectedDate = todayStr;
+            }
             const tableBody = document.getElementById('rosterTable');
             tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 30px;">Fetching records for ${selectedDate}...</td></tr>`;
 
