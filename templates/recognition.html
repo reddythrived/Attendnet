@@ -233,7 +233,8 @@
         let currentFacingMode = 'user';
 
         const SESSION_WINDOW = 30000; // 30 seconds
-        const PRESENCE_THRESHOLD = 8000; // 8 seconds for responsive verification
+        const PRESENCE_THRESHOLD = 10000; // 10 seconds of presence to mark
+        const SPOOF_TIMEOUT = 10000; // 10 seconds continuous motionless/no-blink flags spoof
         const INTERVAL = 300; // ms
         const livenessTracker = {}; // Tracks blink & liveness per USN/face
 
@@ -251,7 +252,7 @@
             reportPanel.style.display = 'block';
 
             try {
-                loadingText.innerText = "Synchronizing AI Engine & Anti-Spoofing Sensors...";
+                loadingText.innerText = "Synchronizing AI Engine & Camera...";
                 
                 const modelPath = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
                 const modelPromise = Promise.all([
@@ -275,7 +276,7 @@
                 loadingOverlay.style.opacity = '0';
                 setTimeout(() => loadingOverlay.style.display = 'none', 300);
 
-                statusText.innerText = students.length > 0 ? `AI Recognition & Anti-Spoof Active | 60s` : "No students registered.";
+                statusText.innerText = students.length > 0 ? `Recognition Active | 60s` : "No students registered.";
                 if (students.length > 0) {
                     statusDot.classList.add('active');
                     startGlobalTimer();
@@ -306,7 +307,7 @@
                                 const box = detection.detection.box;
                                 const landmarks = detection.landmarks;
                                 
-                                // Anti-Spoofing: Calculate EAR for Left and Right Eyes
+                                // Calculate Eye Aspect Ratio
                                 const leftEye = landmarks.getLeftEye();
                                 const rightEye = landmarks.getRightEye();
                                 const leftEAR = calculateEAR(leftEye);
@@ -316,32 +317,32 @@
                                 let label = "";
                                 let score = (1 - (result ? result.distance : 1)).toFixed(2);
                                 let color = "#ef4444";
-                                let isLive = false;
 
                                 if (result && result.distance < 0.45) { // Confirmed face match
                                     const student = result.student;
                                     const usn = student.usn;
+                                    const now = Date.now();
 
                                     if (!livenessTracker[usn]) {
                                         livenessTracker[usn] = {
+                                            firstSeen: now,
                                             blinkCount: 0,
                                             eyeState: 'OPEN',
                                             earMin: avgEAR,
                                             earMax: avgEAR,
-                                            staticFrames: 0,
                                             lastNosePos: landmarks.getNose()[0],
                                             microMotionScore: 0,
-                                            verifiedLive: false
+                                            isSpoof: false
                                         };
                                     }
 
                                     const lt = livenessTracker[usn];
                                     
-                                    // Track EAR min and max
+                                    // Track EAR min and max dynamics
                                     if (avgEAR < lt.earMin) lt.earMin = avgEAR;
                                     if (avgEAR > lt.earMax) lt.earMax = avgEAR;
 
-                                    // Natural Blink Detector State Machine
+                                    // Natural Blink Detector
                                     if (avgEAR < 0.22 && lt.eyeState === 'OPEN') {
                                         lt.eyeState = 'CLOSED';
                                     } else if (avgEAR > 0.25 && lt.eyeState === 'CLOSED') {
@@ -349,24 +350,31 @@
                                         lt.blinkCount++;
                                     }
 
-                                    // Micro-movement detection against static paper photos
+                                    // Micro-movement detection
                                     const nose = landmarks.getNose()[0];
                                     const noseDelta = Math.hypot(nose.x - lt.lastNosePos.x, nose.y - lt.lastNosePos.y);
                                     lt.lastNosePos = nose;
-                                    if (noseDelta > 0.3 && noseDelta < 15) {
+                                    if (noseDelta > 0.2 && noseDelta < 20) {
                                         lt.microMotionScore++;
                                     }
 
-                                    // Anti-Spoofing Rule: Require at least 1 natural blink OR significant EAR dynamics + micro-motion
-                                    if (lt.blinkCount >= 1 || ((lt.earMax - lt.earMin) > 0.08 && lt.microMotionScore > 5)) {
-                                        lt.verifiedLive = true;
+                                    const timeInFront = now - lt.firstSeen;
+
+                                    // Passive Anti-Spoofing Rule:
+                                    // If present continuously for 10+ seconds with 0 blinks and 0 facial movement -> Flag Spoof
+                                    if (timeInFront >= SPOOF_TIMEOUT && lt.blinkCount === 0 && (lt.earMax - lt.earMin) < 0.04 && lt.microMotionScore < 4) {
+                                        lt.isSpoof = true;
+                                    } else if (lt.blinkCount > 0 || (lt.earMax - lt.earMin) >= 0.06) {
+                                        lt.isSpoof = false;
                                     }
 
-                                    isLive = lt.verifiedLive;
-
-                                    if (isLive) {
-                                        color = "#10b981"; // Green for Verified Live
-                                        label = `${student.usn} [${score}] ✓ LIVE`;
+                                    if (lt.isSpoof) {
+                                        color = "#ef4444"; // Red
+                                        label = `${student.usn} [${score}] ⚠️ Spoof (No Blink 10s+)`;
+                                        updatePresence(student, false);
+                                    } else {
+                                        color = "#10b981"; // Vibrant Green (as before!)
+                                        label = `${student.usn} [${score}]`;
                                         updatePresence(student, true);
                                         
                                         const stats = sessionTracker[student.usn];
@@ -374,10 +382,6 @@
                                             const progress = Math.min((stats.presenceFrames * INTERVAL / PRESENCE_THRESHOLD) * 100, 100);
                                             label += ` | ${Math.round(progress)}%`;
                                         }
-                                    } else {
-                                        color = "#f59e0b"; // Amber for pending liveness
-                                        label = `${student.usn} [${score}] 👁️ Please Blink (Anti-Spoof)`;
-                                        updatePresence(student, false);
                                     }
                                 } else {
                                     label = `Scanning... [${score}]`;
