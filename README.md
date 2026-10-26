@@ -1,15 +1,8 @@
----
-title: AttendNet
-emoji: 🛡️
-colorFrom: indigo
-colorTo: blue
-sdk: docker
-app_port: 7860
----
-
 # Smart Face Attendance System
 
 A Python-based face recognition attendance system using FaceNet deep learning model and OpenCV for real-time face detection and recognition.
+
+# Live Demo :- https://reddythrived-attendnet.hf.space
 
 ## Features
 
